@@ -1,0 +1,28 @@
+# requirements.txt for examples/postgres/
+# Satisfies all .py scripts in this tree. Version specs from install/dependencies.toml.
+#
+# Note: RAG scripts (docs/, test/, examples/) also depend on local modules
+# (base_rag_system, clients, domain_configuration, template_library, plugin_system, etc.)
+# which must be on PYTHONPATH or in the same package.
+
+# --- PostgreSQL (customer-order, setup_schema, test_connection, test_query, validate_rag_results, etc.)
+psycopg2-binary>=2.9.11
+
+# --- Environment and config
+python-dotenv>=1.2.1
+
+# --- HTTP and utilities
+requests>=2.32.5
+
+# --- Data generation (customer-order.py)
+faker>=40.1.0
+
+# --- YAML (test/conversational_demo.py)
+PyYAML>=6.0.3
+
+# --- Templates (example_healthcare_domain and RAG template SQL)
+jinja2>=3.1.6
+
+# --- RAG / vector / Ollama (docs/validate_rag_results, test/conversational_demo, examples/example_*.py)
+ollama>=0.6.1
+chromadb>=1.4.0
