@@ -23,23 +23,41 @@ envContent.split('\n').forEach(line => {
   const trimmed = line.trim();
   if (trimmed && !trimmed.startsWith('#')) {
     const [key, ...valueParts] = trimmed.split('=');
-    if (key && valueParts.length > 0) {
-      envVars[key] = valueParts.join('=');
+    const k = (key && key.trim());
+    if (k && valueParts.length > 0) {
+      envVars[k] = valueParts.join('=').trim();
     }
   }
 });
 
+// Helper to strip surrounding quotes from .env values
+function stripQuotes(s) {
+  if (typeof s !== 'string') return s;
+  const t = s.trim();
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) return t.slice(1, -1);
+  return t;
+}
+
 // Set environment variables directly
-process.env.DB_HOST = envVars.DB_HOST;
-process.env.DB_PORT = envVars.DB_PORT;
-process.env.DB_NAME = envVars.DB_NAME;
-process.env.DB_USER = envVars.DB_USER;
-process.env.DB_PASSWORD = envVars.DB_PASSWORD;
+process.env.DB_HOST = stripQuotes(envVars.DB_HOST);
+process.env.DB_PORT = stripQuotes(envVars.DB_PORT);
+process.env.DB_NAME = stripQuotes(envVars.DB_NAME);
+process.env.DB_USER = stripQuotes(envVars.DB_USER);
+process.env.DB_PASSWORD = stripQuotes(envVars.DB_PASSWORD);
+process.env.DB_SSL_MODE = stripQuotes(envVars.DB_SSL_MODE);
+process.env.DB_SSL_REJECT_UNAUTHORIZED = stripQuotes(envVars.DB_SSL_REJECT_UNAUTHORIZED);
 
 console.log('🔧 Database connection using:');
 console.log('  Host:', process.env.DB_HOST);
 console.log('  User:', process.env.DB_USER);
 console.log('  Database:', process.env.DB_NAME);
+
+// AWS RDS and most remote Postgres require SSL. Use SSL when not connecting to localhost.
+const isLocalHost = /^localhost$|^127\.0\.0\.1$/.test((process.env.DB_HOST || '').trim());
+const sslDisabled = (process.env.DB_SSL_MODE || '').toLowerCase() === 'disable';
+const useSsl = !sslDisabled && !isLocalHost;
+// RDS often fails with rejectUnauthorized:true if the RDS CA isn't in Node's trust store.
+const sslRejectUnauthorized = (process.env.DB_SSL_REJECT_UNAUTHORIZED || 'false').toLowerCase() === 'true';
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -47,6 +65,7 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
+  ssl: useSsl ? { rejectUnauthorized: sslRejectUnauthorized } : false,
   max: 10, // Reduced from 20 for demo app
   min: 2,  // Keep minimum connections ready
   idleTimeoutMillis: 10000, // Reduced to 10 seconds

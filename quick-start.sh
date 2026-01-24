@@ -48,8 +48,8 @@ if node -e "
 const fs = require('fs');
 const path = require('path');
 
-// Read .env.local file directly
-const envPath = path.join(__dirname, '.env.local');
+// Read .env.local from project root (process.cwd; __dirname can be undefined in node -e)
+const envPath = path.join(process.cwd(), '.env.local');
 if (!fs.existsSync(envPath)) {
   console.log('❌ .env.local file not found');
   process.exit(1);
@@ -80,17 +80,18 @@ console.log('  DB_HOST:', process.env.DB_HOST);
 console.log('  DB_USER:', process.env.DB_USER);
 console.log('  DB_NAME:', process.env.DB_NAME);
 
-const pool = require('./backend/db/connection.cjs');
+const { pool } = require('./backend/db/connection.cjs');
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
-    console.log('❌ Database connection failed:', err.message);
+    console.error('❌ Database connection failed:', err.message);
+    if (err.code) console.error('   Error code:', err.code);
     process.exit(1);
   } else {
     console.log('✅ Database connection successful');
     pool.end();
   }
 });
-" 2>/dev/null; then
+"; then
     echo "✅ Database connection successful"
 else
     echo "❌ Database connection failed. Please check your .env.local configuration."
