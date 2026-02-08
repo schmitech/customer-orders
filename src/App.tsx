@@ -6,6 +6,64 @@ import CustomersTable from './components/CustomersTable';
 import OrdersTable from './components/OrdersTable';
 import { TrendingUp } from 'lucide-react';
 
+const DEFAULT_SUGGESTED_QUESTIONS = [
+  {
+    text: "How many customers did we get last week?",
+    query: "how many customers did we get last week?"
+  },
+  {
+    text: "How are our sales trending?",
+    query: "What are the current sales trends and performance indicators?"
+  },
+  {
+    text: "How has our average order value changed?",
+    query: "How has our average order value changed?"
+  },
+  {
+    text: "Show me recent order activity",
+    query: "What are the most recent orders and their current status?"
+  },
+  {
+    text: "How do sales this quarter compare to last quarter?",
+    query: "How do sales this quarter compare to last quarter?"
+  },
+  {
+    text: "Please provide orders valued $500 above in the last 7 days.",
+    query: "Please provide orders valued $500 above in the last 7 days."
+  }
+];
+
+function loadSuggestedQuestions() {
+  const questionsStr = import.meta.env.VITE_WIDGET_SUGGESTED_QUESTIONS;
+  if (!questionsStr) {
+    return DEFAULT_SUGGESTED_QUESTIONS;
+  }
+
+  const attempts = [questionsStr.trim()];
+  const relaxedJson = attempts[0].replace(/([{{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":');
+  if (relaxedJson !== attempts[0]) {
+    attempts.push(relaxedJson);
+  }
+
+  let lastError: unknown;
+  for (const candidate of attempts) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    console.warn('Failed to parse VITE_WIDGET_SUGGESTED_QUESTIONS, using defaults:', lastError);
+  }
+
+  return DEFAULT_SUGGESTED_QUESTIONS;
+}
+
 // Environment variables configuration for customer orders dashboard
 const ENV_CONFIG = {
   // API Configuration
@@ -28,66 +86,7 @@ const ENV_CONFIG = {
   widgetWelcomeTitle: import.meta.env.VITE_WIDGET_WELCOME_TITLE || 'Welcome to Customer Order Dashboard!',
   widgetWelcomeDescription: import.meta.env.VITE_WIDGET_WELCOME_DESCRIPTION || 'Your AI assistant for order analytics, customer insights, performance metrics, and business intelligence. Get real-time insights and answers about your data.',
   
-  // Parse suggested questions from JSON string
-  widgetSuggestedQuestions: (() => {
-    try {
-      const questionsStr = import.meta.env.VITE_WIDGET_SUGGESTED_QUESTIONS;
-      return questionsStr ? JSON.parse(questionsStr) : [
-        {
-          text: "How many customers did we get last week?",
-          query: "how many customers did we get last week?"
-        },
-        {
-          text: "How are our sales trending?",
-          query: "What are the current sales trends and performance indicators?"
-        },
-        {
-          text: "How has our average order value changed?",
-          query: "How has our average order value changed?"
-        },
-        {
-          text: "Show me recent order activity",
-          query: "What are the most recent orders and their current status?"
-        },
-        {
-          text: "How do sales this quarter compare to last quarter?",
-          query: "How do sales this quarter compare to last quarter?"
-        },
-        {
-          text: "Please provide orders valued $500 above in the last 7 days.",
-          query: "Please provide orders valued $500 above in the last 7 days."
-        }
-      ];
-    } catch (error) {
-      console.warn('Failed to parse VITE_WIDGET_SUGGESTED_QUESTIONS, using defaults:', error);
-      return [
-        {
-          text: "How many customers did we get last week?",
-          query: "how many customers did we get last week?"
-        },
-        {
-          text: "How are our sales trending?",
-          query: "What are the current sales trends and performance indicators?"
-        },
-        {
-          text: "How has our average order value changed?",
-          query: "How has our average order value changed?"
-        },
-        {
-          text: "Show me recent order activity",
-          query: "What are the most recent orders and their current status?"
-        },
-        {
-          text: "How do sales this quarter compare to last quarter?",
-          query: "How do sales this quarter compare to last quarter?"
-        },
-        {
-          text: "Please provide orders valued $500 above in the last 7 days.",
-          query: "Please provide orders valued $500 above in the last 7 days."
-        }
-      ];
-    }
-  })(),
+  widgetSuggestedQuestions: loadSuggestedQuestions(),
   
   // Theme Configuration - Matches dashboard blue theme
   theme: {
@@ -183,23 +182,6 @@ function App() {
       return;
     }
 
-    console.log('Initializing Customer Order Dashboard chatbot widget...');
-    console.log('Creating container for floating widget mode');
-    
-    // Debug logging for environment configuration
-    if (ENV_CONFIG.widgetDebug) {
-      console.log('📊 Customer Order Dashboard Widget Configuration:');
-      console.log(`  API URL: ${ENV_CONFIG.apiUrl}`);
-      console.log(`  Organization: ${ENV_CONFIG.orgName}`);
-      console.log(`  Widget Source: ${ENV_CONFIG.widgetSource}`);
-      console.log(`  NPM Version: ${ENV_CONFIG.npmWidgetVersion}`);
-      console.log(`  Header Title: ${ENV_CONFIG.widgetHeaderTitle}`);
-      console.log(`  Welcome Title: ${ENV_CONFIG.widgetWelcomeTitle}`);
-      console.log(`  Suggested Questions: ${ENV_CONFIG.widgetSuggestedQuestions.length} items`);
-      console.log(`  Primary Color: ${ENV_CONFIG.theme.primary}`);
-      console.log(`  Secondary Color: ${ENV_CONFIG.theme.secondary}`);
-    }
-    
     // Create a container div for the widget (required even for floating widget mode)
     const containerId = 'customer-orders-chatbot-widget-container';
     let container = document.getElementById(containerId);
@@ -236,12 +218,8 @@ function App() {
       }
     };
     
-    console.log('Widget config:', config);
-    console.log('Calling initChatbotWidget with container:', `#${containerId}`);
-    
     try {
       window.initChatbotWidget(config);
-      console.log('initChatbotWidget called successfully');
     } catch (error) {
       console.error('Error initializing chatbot widget:', error);
     }
@@ -251,24 +229,16 @@ function App() {
   useEffect(() => {
     if (!widgetInitialized.current) {
       const checkWidgetLoaded = () => {
-        console.log('Checking widget availability...');
-        console.log('window.initChatbotWidget:', typeof window.initChatbotWidget);
-        console.log('window.React:', typeof window.React);
-        console.log('window.ReactDOM:', typeof window.ReactDOM);
-        
         if (typeof window.initChatbotWidget !== 'undefined') {
           if (typeof window.React === 'undefined' || typeof window.ReactDOM === 'undefined') {
             console.error('React or ReactDOM not loaded!');
-            console.log('Waiting for React to load...');
             setTimeout(checkWidgetLoaded, 100);
             return;
           }
           
-          console.log('ChatbotWidget loaded successfully! Starting initialization...');
           initializeWidget();
           widgetInitialized.current = true;
         } else {
-          console.log('Waiting for ChatbotWidget to load...');
           setTimeout(checkWidgetLoaded, 100);
         }
       };
