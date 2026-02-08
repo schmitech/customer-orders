@@ -9,7 +9,8 @@ const CustomersTable: React.FC = () => {
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
   const fetchCustomers = async (page: number = 1, searchTerm: string = '') => {
@@ -28,33 +29,18 @@ const CustomersTable: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchCustomers(currentPage, search);
-  }, [currentPage, search]);
+    fetchCustomers(currentPage, searchQuery);
+  }, [currentPage, searchQuery]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setCurrentPage(1);
-    fetchCustomers(1, search);
+    setSearchQuery(searchInput.trim());
   };
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
   };
-
-  if (loading && customers.length === 0) {
-    return (
-      <div className="card p-6">
-        <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded-md w-1/4 mb-4"></div>
-          <div className="space-y-3">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-12 bg-gray-200 rounded-md"></div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -67,8 +53,11 @@ const CustomersTable: React.FC = () => {
     );
   }
 
+  const showInitialSkeleton = loading && customers.length === 0;
+  const showEmptyState = !loading && customers.length === 0;
+
   return (
-    <div className="card overflow-hidden">
+    <div className="card overflow-hidden" aria-busy={loading}>
       <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-white to-gray-50">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center mb-4 sm:mb-0 group">
@@ -83,8 +72,8 @@ const CustomersTable: React.FC = () => {
               <input
                 type="text"
                 placeholder="Search customers..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 className="input-field rounded-l-lg pl-10"
               />
             </div>
@@ -102,28 +91,37 @@ const CustomersTable: React.FC = () => {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Customer
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Contact
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Location
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Orders
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Total Spent
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Joined
               </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {customers.map((customer) => (
+            {showInitialSkeleton &&
+              [...Array(5)].map((_, i) => (
+                <tr key={`skeleton-${i}`} className="animate-pulse">
+                  <td className="px-6 py-4" colSpan={6}>
+                    <div className="h-4 bg-gray-200 rounded-md w-1/3 mb-2"></div>
+                    <div className="h-3 bg-gray-100 rounded-md w-1/4"></div>
+                  </td>
+                </tr>
+              ))}
+            {!showInitialSkeleton && customers.map((customer) => (
               <tr key={customer.id} className="hover:bg-gray-50 transition-colors duration-150">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900">{customer.name}</div>
@@ -148,6 +146,17 @@ const CustomersTable: React.FC = () => {
                 </td>
               </tr>
             ))}
+            {showEmptyState && (
+              <tr>
+                <td colSpan={6} className="px-6 py-10 text-center">
+                  <div className="flex flex-col items-center space-y-2 text-secondary-500">
+                    <AlertCircle className="w-5 h-5" />
+                    <p className="text-sm font-medium">No customers match this view</p>
+                    <p className="text-xs">Try adjusting search keywords or filters.</p>
+                  </div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

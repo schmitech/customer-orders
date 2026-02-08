@@ -1,7 +1,7 @@
-import { 
-  Customer, 
-  Order, 
-  DashboardMetrics, 
+import {
+  Customer,
+  Order,
+  DashboardMetrics,
   PaginationInfo,
   OrdersOverTimeData,
   RevenueByCustomerData,
@@ -9,7 +9,15 @@ import {
   OrderFilters
 } from '../types';
 
-const API_BASE_URL = `http://localhost:${import.meta.env.VITE_PORT || '3001'}/api`;
+const API_BASE_URL = (() => {
+  const envBase = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (envBase) {
+    return envBase.replace(/\/$/, '');
+  }
+
+  const fallbackPort = import.meta.env.VITE_API_PORT || import.meta.env.VITE_PORT || '3001';
+  return `http://localhost:${fallbackPort}/api`;
+})();
 
 class ApiService {
   private async fetchWithErrorHandling<T>(url: string): Promise<T> {

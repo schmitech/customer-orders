@@ -6,7 +6,6 @@ import {
   TrendingUp, 
   Users, 
   ShoppingCart, 
-  Clock, 
   AlertCircle,
   Package,
   DollarSign,

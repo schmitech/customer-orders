@@ -10,7 +10,9 @@ import {
   Title,
   Tooltip,
   Legend,
+  Filler,
 } from 'chart.js';
+import type { ChartOptions, TooltipItem } from 'chart.js';
 import { Line, Bar, Pie } from 'react-chartjs-2';
 import { apiService } from '../services/api';
 import { OrdersOverTimeData, RevenueByCustomerData, OrderStatusData } from '../types';
@@ -26,8 +28,11 @@ ChartJS.register(
   ArcElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 );
+
+const DEFAULT_ORDERS_RANGE: 7 | 14 | 30 | 90 = 30;
 
 const Charts: React.FC = () => {
   const [ordersOverTime, setOrdersOverTime] = useState<OrdersOverTimeData[]>([]);
@@ -35,7 +40,7 @@ const Charts: React.FC = () => {
   const [orderStatus, setOrderStatus] = useState<OrderStatusData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [ordersRange, setOrdersRange] = useState<7 | 14 | 30 | 90>(30);
+  const [ordersRange, setOrdersRange] = useState<7 | 14 | 30 | 90>(DEFAULT_ORDERS_RANGE);
   const [ordersMetric, setOrdersMetric] = useState<'orders' | 'revenue'>('orders');
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersTrendError, setOrdersTrendError] = useState<string | null>(null);
@@ -47,7 +52,7 @@ const Charts: React.FC = () => {
         setLoading(true);
         setOrdersLoading(true);
         const [ordersData, revenueData, statusData] = await Promise.all([
-          apiService.getOrdersOverTime(ordersRange),
+          apiService.getOrdersOverTime(DEFAULT_ORDERS_RANGE),
           apiService.getRevenueByCustomer(10),
           apiService.getOrderStatusDistribution(),
         ]);
@@ -181,17 +186,20 @@ const Charts: React.FC = () => {
     ],
   };
 
-  const baseChartOptions = useMemo(() => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'top' as const,
+  const baseChartOptions = useMemo<ChartOptions<'line' | 'bar' | 'pie'>>(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top',
+        },
       },
-    },
-  }), []);
+    }),
+    []
+  );
 
-  const ordersLineOptions = useMemo(() => {
+  const ordersLineOptions = useMemo<ChartOptions<'line'>>(() => {
     const isRevenueView = ordersMetric === 'revenue';
 
     return {
@@ -200,9 +208,9 @@ const Charts: React.FC = () => {
         y: {
           beginAtZero: true,
           ticks: {
-            callback: function(value: any) {
+            callback(value) {
               if (isRevenueView) {
-                return formatCurrency(value);
+                return formatCurrency(Number(value));
               }
               return value;
             },
@@ -213,9 +221,9 @@ const Charts: React.FC = () => {
         ...baseChartOptions.plugins,
         tooltip: {
           callbacks: {
-            label: function(context: any) {
+            label(context: TooltipItem<'line'>) {
               const prefix = isRevenueView ? 'Revenue' : 'Orders';
-              const value = context.parsed.y;
+              const value = context.parsed.y ?? 0;
               return `${prefix}: ${isRevenueView ? formatCurrency(value) : value}`;
             },
           },
@@ -224,29 +232,33 @@ const Charts: React.FC = () => {
     };
   }, [baseChartOptions, ordersMetric]);
 
-  const barChartOptions = useMemo(() => ({
-    ...baseChartOptions,
-    scales: {
-      y: {
-        beginAtZero: true,
-        ticks: {
-          callback: function(value: any) {
-            return formatCurrency(value);
+  const barChartOptions = useMemo<ChartOptions<'bar'>>(
+    () => ({
+      ...baseChartOptions,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback(value) {
+              return formatCurrency(Number(value));
+            },
           },
         },
       },
-    },
-    plugins: {
-      ...baseChartOptions.plugins,
-      tooltip: {
-        callbacks: {
-          label: function(context: any) {
-            return `Revenue: ${formatCurrency(context.parsed.y)}`;
+      plugins: {
+        ...baseChartOptions.plugins,
+        tooltip: {
+          callbacks: {
+            label(context: TooltipItem<'bar'>) {
+              const value = context.parsed.y ?? 0;
+              return `Revenue: ${formatCurrency(value)}`;
+            },
           },
         },
       },
-    },
-  }), [baseChartOptions]);
+    }),
+    [baseChartOptions]
+  );
 
   const averageOrders = useMemo(() => {
     if (!ordersOverTime.length) return null;
@@ -375,7 +387,7 @@ const Charts: React.FC = () => {
         <div className="card p-6 hover:shadow-xl transition-all duration-300">
           <h3 className="text-xl font-bold text-gradient mb-6">Order Status Distribution</h3>
           <div className="h-64 bg-gradient-to-br from-gray-50 to-white rounded-lg p-4">
-            <Pie data={orderStatusData} options={baseChartOptions} />
+            <Pie data={orderStatusData} options={baseChartOptions as ChartOptions<'pie'>} />
           </div>
         </div>
       </div>

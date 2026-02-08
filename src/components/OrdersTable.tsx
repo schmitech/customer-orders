@@ -89,21 +89,8 @@ const OrdersTable: React.FC = () => {
   }, [orders]);
 
   const activePageSize = filters.limit || 10;
-
-  if (loading && orders.length === 0) {
-    return (
-      <div className="card p-6">
-        <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded-md w-1/4 mb-4"></div>
-          <div className="space-y-3">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-12 bg-gray-200 rounded-md"></div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const showInitialSkeleton = loading && orders.length === 0;
+  const showEmptyState = !loading && displayedOrders.length === 0;
 
   if (error) {
     return (
@@ -117,7 +104,7 @@ const OrdersTable: React.FC = () => {
   }
 
   return (
-    <div className="card overflow-hidden">
+    <div className="card overflow-hidden" aria-busy={loading}>
       <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-white to-gray-50">
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
           <div className="flex items-center mb-4 sm:mb-0 group">
@@ -269,34 +256,46 @@ const OrdersTable: React.FC = () => {
             );
           })}
         </div>
+        <p className="text-[11px] text-secondary-500 mt-2">
+          Status counts reflect only the orders currently loaded on this page.
+        </p>
       </div>
 
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Order ID
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Customer
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Order Date
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Total
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" aria-sort="none">
                 Payment Method
               </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {displayedOrders.map((order) => (
+            {showInitialSkeleton &&
+              [...Array(5)].map((_, i) => (
+                <tr key={`order-skeleton-${i}`} className="animate-pulse">
+                  <td className="px-6 py-4" colSpan={6}>
+                    <div className="h-4 bg-gray-200 rounded-md w-1/4 mb-2"></div>
+                    <div className="h-3 bg-gray-100 rounded-md w-1/5"></div>
+                  </td>
+                </tr>
+              ))}
+            {!showInitialSkeleton && displayedOrders.map((order) => (
               <tr key={order.id} className="hover:bg-gray-50 transition-colors duration-150">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900">#{order.id}</div>
@@ -321,7 +320,7 @@ const OrdersTable: React.FC = () => {
                 </td>
               </tr>
             ))}
-            {displayedOrders.length === 0 && (
+            {showEmptyState && (
               <tr>
                 <td colSpan={6} className="px-6 py-10 text-center">
                   <div className="flex flex-col items-center space-y-2 text-secondary-500">

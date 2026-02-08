@@ -6,7 +6,69 @@ import CustomersTable from './components/CustomersTable';
 import OrdersTable from './components/OrdersTable';
 import { TrendingUp } from 'lucide-react';
 
-const DEFAULT_SUGGESTED_QUESTIONS = [
+interface SuggestedQuestion {
+  text: string;
+  query: string;
+}
+
+interface WidgetTheme {
+  primary: string;
+  secondary: string;
+  background: string;
+  text: {
+    primary: string;
+    secondary: string;
+    inverse: string;
+  };
+  input: {
+    background: string;
+    border: string;
+  };
+  message: {
+    user: string;
+    assistant: string;
+    userText: string;
+  };
+  suggestedQuestions: {
+    background: string;
+    hoverBackground: string;
+    text: string;
+  };
+  chatButton: {
+    background: string;
+    hoverBackground: string;
+    iconColor: string;
+    iconBorderColor: string;
+    borderColor: string;
+    iconName: string;
+  };
+}
+
+interface WidgetConfig {
+  header?: { title: string };
+  welcome?: { title: string; description: string };
+  suggestedQuestions?: SuggestedQuestion[];
+  maxSuggestedQuestionLength?: number;
+  maxSuggestedQuestionQueryLength?: number;
+  theme?: WidgetTheme;
+}
+
+interface InitWidgetConfig {
+  apiUrl: string;
+  apiKey: string;
+  sessionId?: string;
+  containerSelector?: string;
+  widgetConfig?: WidgetConfig;
+}
+
+interface ChatbotWidgetAPI {
+  updateWidgetConfig: (config: WidgetConfig) => void;
+  setApiUrl: (apiUrl: string) => void;
+  setApiKey: (apiKey: string) => void;
+  getCurrentConfig?: () => WidgetConfig | undefined;
+}
+
+const DEFAULT_SUGGESTED_QUESTIONS: SuggestedQuestion[] = [
   {
     text: "How many customers did we get last week?",
     query: "how many customers did we get last week?"
@@ -33,7 +95,7 @@ const DEFAULT_SUGGESTED_QUESTIONS = [
   }
 ];
 
-function loadSuggestedQuestions() {
+function loadSuggestedQuestions(): SuggestedQuestion[] {
   const questionsStr = import.meta.env.VITE_WIDGET_SUGGESTED_QUESTIONS;
   if (!questionsStr) {
     return DEFAULT_SUGGESTED_QUESTIONS;
@@ -147,28 +209,10 @@ function getSessionId(): string {
 
 declare global {
   interface Window {
-    initChatbotWidget?: (config: {
-      apiUrl: string,
-      apiKey: string,
-      sessionId?: string,
-      containerSelector?: string,
-      widgetConfig?: {
-        header?: { title: string },
-        welcome?: { title: string, description: string },
-        suggestedQuestions?: Array<{ text: string, query: string }>,
-        maxSuggestedQuestionLength?: number,
-        maxSuggestedQuestionQueryLength?: number,
-        theme?: any
-      }
-    }) => void;
-    ChatbotWidget?: {
-      updateWidgetConfig: (config: any) => void;
-      setApiUrl: (apiUrl: string) => void;
-      setApiKey: (apiKey: string) => void;
-      getCurrentConfig?: () => any;
-    };
-    React?: any;
-    ReactDOM?: any;
+    initChatbotWidget?: (config: InitWidgetConfig) => void;
+    ChatbotWidget?: ChatbotWidgetAPI;
+    React?: typeof React;
+    ReactDOM?: typeof import('react-dom');
   }
 }
 
