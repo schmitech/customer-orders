@@ -5,41 +5,16 @@ This script creates the necessary tables for the customer-order.py script.
 """
 
 import psycopg2
-from dotenv import load_dotenv, find_dotenv
 import os
 import sys
-
-def reload_env_variables():
-    """Reload environment variables from .env file"""
-    env_file = find_dotenv()
-    if env_file:
-        load_dotenv(env_file, override=True)
-        print(f"🔄 Reloaded environment variables from: {env_file}")
-    else:
-        print("⚠️  No .env file found")
-
-def get_db_config():
-    """Get database configuration from environment variables"""
-    reload_env_variables()
-    
-    return {
-        'host': os.getenv('DATASOURCE_POSTGRES_HOST', 'localhost'),
-        'port': int(os.getenv('DATASOURCE_POSTGRES_PORT', '5432')),
-        'database': os.getenv('DATASOURCE_POSTGRES_DATABASE', 'orbit'),
-        'user': os.getenv('DATASOURCE_POSTGRES_USERNAME', 'postgres'),
-        'password': os.getenv('DATASOURCE_POSTGRES_PASSWORD', 'postgres'),
-        'sslmode': os.getenv('DATASOURCE_POSTGRES_SSL_MODE', 'require')
-    }
+from env_utils import get_postgres_config, print_postgres_config
 
 def setup_schema():
     """Set up the database schema by executing the SQL file"""
     connection = None
     try:
-        config = get_db_config()
-        
-        print(f"🔗 Connecting to PostgreSQL at {config['host']}:{config['port']}")
-        print(f"📊 Database: {config['database']}, User: {config['user']}")
-        print(f"🔒 SSL Mode: {config['sslmode']}")
+        config = get_postgres_config()
+        print_postgres_config(config)
         
         # Connect to database
         connection = psycopg2.connect(**config)
@@ -60,25 +35,9 @@ def setup_schema():
         # Execute the SQL
         cursor = connection.cursor()
         
-        # Check if tables exist and drop them first
-        print("🧹 Checking for existing tables...")
-        cursor.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name IN ('customers', 'orders')
-        """)
-        
-        existing_tables = cursor.fetchall()
-        if existing_tables:
-            print(f"🗑️  Dropping existing tables: {[table[0] for table in existing_tables]}")
-            cursor.execute("DROP TABLE IF EXISTS orders CASCADE")
-            cursor.execute("DROP TABLE IF EXISTS customers CASCADE")
-            connection.commit()
-            print("✅ Existing tables dropped")
-        
-        # Execute the entire SQL content as one statement
-        print("🔨 Setting up database schema...")
+        # Execute the entire SQL content
+        # The SQL file already contains DROP TABLE IF EXISTS statements
+        print("🔨 Setting up database schema (dropping and recreating tables)...")
         cursor.execute(sql_content)
         
         connection.commit()
@@ -120,11 +79,11 @@ def verify_schema():
     """Verify that the schema is properly set up"""
     connection = None
     try:
-        config = get_db_config()
+        config = get_postgres_config()
         connection = psycopg2.connect(**config)
         cursor = connection.cursor()
         
-        # Check if tables exist
+        # Check columns
         cursor.execute("""
             SELECT table_name, column_name, data_type 
             FROM information_schema.columns 
@@ -135,7 +94,7 @@ def verify_schema():
         
         columns = cursor.fetchall()
         
-        print("📋 Database Schema Verification:")
+        print("\n📋 Database Schema Verification:")
         print("-" * 50)
         
         current_table = None

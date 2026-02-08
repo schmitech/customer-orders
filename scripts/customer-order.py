@@ -45,19 +45,10 @@ from datetime import datetime, timedelta
 import json
 from decimal import Decimal
 import os
-from dotenv import load_dotenv, find_dotenv
 import requests
 import time
 from typing import Optional, Dict, List
-
-def reload_env_variables():
-    """Reload environment variables from .env file"""
-    env_file = find_dotenv()
-    if env_file:
-        load_dotenv(env_file, override=True)
-        print(f"🔄 Reloaded environment variables from: {env_file}")
-    else:
-        print("⚠️  No .env file found")
+from env_utils import get_postgres_config, print_postgres_config
 
 # Initialize Faker with Western locales only (avoiding Asian characters)
 # Initialize Faker with all necessary locales for realistic data generation
@@ -545,39 +536,10 @@ def generate_realistic_address(country):
         city = faker_instance.city()
         return f"{street_address}, {city}, {postal_code}, {country}"
 
-# Database configuration from environment variables
-def get_db_config():
-    """Get database configuration from environment variables and construct connection string."""
-    # Reload environment variables to get latest values
-    reload_env_variables()
-    
-    # Get individual environment variables
-    host = os.getenv('DATASOURCE_POSTGRES_HOST', 'localhost')
-    port = int(os.getenv('DATASOURCE_POSTGRES_PORT', '5432'))
-    database = os.getenv('DATASOURCE_POSTGRES_DATABASE', 'test_db')
-    user = os.getenv('DATASOURCE_POSTGRES_USERNAME', 'postgres')
-    password = os.getenv('DATASOURCE_POSTGRES_PASSWORD', 'postgres')
-    sslmode = os.getenv('DATASOURCE_POSTGRES_SSL_MODE', 'require')
-    
-    # Construct connection string dynamically
-    connection_string = f"postgresql://{user}:{password}@{host}:{port}/{database}"
-    print(f"🔗 Using connection string: postgresql://{user}:{'*' * len(password)}@{host}:{port}/{database}")
-    print(f"🔒 SSL Mode: {sslmode}")
-    
-    return {
-        'host': host,
-        'port': port,
-        'database': database,
-        'user': user,
-        'password': password,
-        'sslmode': sslmode
-    }
-
-
 def get_connection():
     """Create and return a database connection."""
-    # Get fresh configuration each time
-    config = get_db_config()
+    config = get_postgres_config()
+    print_postgres_config(config)
     return psycopg2.connect(**config)
 
 
@@ -590,41 +552,53 @@ def insert_customers(conn, count=100):
     max_attempts = count * 10  # Prevent infinite loops
     used_customer_ids = set()  # Track used customer IDs to ensure uniqueness
     
-    print(f"Inserting {count} customers with unique emails and random IDs...")
+    # Countries for customer diversity
+    customer_countries = [
+        ('Canada', 0.5), ('United States', 0.3), ('United Kingdom', 0.1), 
+        ('Germany', 0.05), ('France', 0.05)
+    ]
+    countries = [c[0] for c in customer_countries]
+    country_weights = [c[1] for c in customer_countries]
+
+    print(f"Inserting {count} customers with international diversity and unique emails...")
     
     while inserted_count < count and attempts < max_attempts:
         attempts += 1
         
+        # Select country and locale
+        country = random.choices(countries, weights=country_weights)[0]
+        locale = COUNTRY_LOCALE_MAP.get(country, 'en_US')
+        f = fake[locale]
+
         # Generate unique email using timestamp and random components
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         random_suffix = fake.random_number(digits=4)
-        unique_email = f"{fake.user_name()}{timestamp}{random_suffix}@{fake.domain_name()}"
+        unique_email = f"{f.user_name()}{timestamp}{random_suffix}@{f.domain_name()}"
         
-        # Generate a unique random customer ID (6-8 digits, fits in INTEGER range)
-        customer_id_attempts = 0
+        # Generate a unique random customer ID (6-8 digits)
         customer_id = None
-        
-        while customer_id_attempts < 1000:
-            candidate_id = random.randint(100000, 99999999)  # 6-8 digits, fits in INTEGER
+        while True:
+            candidate_id = random.randint(100000, 99999999)
             if candidate_id not in used_customer_ids:
                 customer_id = candidate_id
                 used_customer_ids.add(customer_id)
                 break
-            customer_id_attempts += 1
         
-        if customer_id is None:
-            # Fallback: use timestamp-based ID if we can't find a unique random one
-            customer_id = int(datetime.now().timestamp() * 100) % 100000000  # 8 digits max
-            used_customer_ids.add(customer_id)
+        # Realistic data quality issues: 5% missing phone numbers
+        phone = f.phone_number()[:20] if random.random() > 0.05 else None
         
+        # Address parts
+        address = f.street_address()
+        city = f.city()
+
         customer = (
-            customer_id,  # Random customer ID
-            fake.name(),
+            customer_id,
+            f.name(),
             unique_email,
-            fake['en_CA'].phone_number()[:20],
-            fake['en_CA'].street_address(),
-            fake['en_CA'].city(),
-            "Canada"  # Ensure Canadian data
+            phone,
+            address,
+            city,
+            country
         )
         
         try:
@@ -640,139 +614,233 @@ def insert_customers(conn, count=100):
                 print(f"  Progress: {inserted_count}/{count} customers inserted")
                 
         except psycopg2.IntegrityError as e:
+            conn.rollback()
             if "customers_email_key" in str(e) or "customers_pkey" in str(e):
-                # Email or ID already exists, continue to next attempt
                 continue
             else:
-                # Other integrity error, re-raise
                 raise e
     
     conn.commit()
     print(f"✓ Inserted {inserted_count} customers (after {attempts} attempts)")
-    
-    if inserted_count < count:
-        print(f"⚠️  Could only insert {inserted_count} customers due to email/ID conflicts")
-    
     return customers
 
 
+class RealisticOrderGenerator:
+    """Generates realistic order data based on business logic and strategies."""
+
+    # Customer Segments
+    SEGMENTS = {
+        'VIP': {'weight': 0.10, 'freq_mult': 5.0, 'value_range': (200, 1000)},
+        'REGULAR': {'weight': 0.50, 'freq_mult': 1.0, 'value_range': (50, 200)},
+        'NEW': {'weight': 0.30, 'freq_mult': 0.2, 'value_range': (20, 80)},
+        'INACTIVE': {'weight': 0.10, 'freq_mult': 0.05, 'value_range': (10, 50)}
+    }
+
+    # Seasonality (Month 1-12)
+    # Q1: 0.8, Q2: 1.0, Q3: 0.9, Q4: 1.5
+    SEASONAL_MULTIPLIERS = {
+        1: 0.8, 2: 0.8, 3: 0.9,
+        4: 1.0, 5: 1.0, 6: 1.0,
+        7: 0.9, 8: 0.9, 9: 1.1, # Back to school
+        10: 1.2, 11: 1.6, 12: 1.8 # Holiday
+    }
+
+    # Payment Methods by Region
+    PAYMENT_PREFS = {
+        'United States': {'credit_card': 0.6, 'paypal': 0.2, 'debit_card': 0.15, 'other': 0.05},
+        'Canada': {'credit_card': 0.5, 'debit_card': 0.3, 'paypal': 0.15, 'other': 0.05},
+        'Germany': {'bank_transfer': 0.4, 'paypal': 0.3, 'credit_card': 0.25, 'other': 0.05},
+        'United Kingdom': {'credit_card': 0.5, 'debit_card': 0.3, 'paypal': 0.15, 'other': 0.05},
+        'Japan': {'credit_card': 0.4, 'cash': 0.2, 'digital_wallet': 0.3, 'other': 0.1},
+        'default': {'credit_card': 0.5, 'paypal': 0.3, 'debit_card': 0.1, 'other': 0.1}
+    }
+
+    def __init__(self, customer_ids):
+        self.customer_ids = customer_ids
+        self.customer_segments = {}
+        self._assign_segments()
+        # Pre-calculate selection weights for performance
+        self._selection_weights = [self.SEGMENTS[self.customer_segments[cid]]['freq_mult'] for cid in self.customer_ids]
+
+    def _assign_segments(self):
+        """Assign segments to customers randomly based on weights."""
+        segments = list(self.SEGMENTS.keys())
+        weights = [self.SEGMENTS[s]['weight'] for s in segments]
+        # Use random.choices for bulk assignment if possible, but strict iteration is safer for dict population
+        for cid in self.customer_ids:
+            self.customer_segments[cid] = random.choices(segments, weights=weights, k=1)[0]
+
+    def get_customer_for_order(self):
+        """Select a customer based on their segment's frequency multiplier."""
+        return random.choices(self.customer_ids, weights=self._selection_weights, k=1)[0]
+
+    def get_order_date(self):
+        """Generate a realistic order date respecting seasonality and business hours."""
+        # Try to find a date that matches seasonal weights
+        for _ in range(10): 
+            days_ago = random.randint(0, 730)
+            candidate_date = datetime.now() - timedelta(days=days_ago)
+            month = candidate_date.month
+            weight = self.SEASONAL_MULTIPLIERS.get(month, 1.0)
+            
+            # Weekend penalty: 30% fewer orders on weekends (Sat=5, Sun=6)
+            if candidate_date.weekday() >= 5:
+                weight *= 0.7
+                
+            if random.random() < (weight / 2.0):
+                # Now randomize the time based on business hours
+                # 9 AM - 5 PM: 70%
+                # 5 PM - 10 PM: 20%
+                # 10 PM - 9 AM: 10%
+                r = random.random()
+                if r < 0.70:
+                    hour = random.randint(9, 16)
+                elif r < 0.90:
+                    hour = random.randint(17, 21)
+                else:
+                    hour = random.choice(list(range(0, 9)) + list(range(22, 24)))
+                
+                minute = random.randint(0, 59)
+                second = random.randint(0, 59)
+                return candidate_date.replace(hour=hour, minute=minute, second=second)
+                
+        # Fallback
+        return datetime.now() - timedelta(days=random.randint(0, 730))
+
+    def get_order_total(self, customer_id):
+        """Generate order total based on customer segment and power law."""
+        segment = self.customer_segments.get(customer_id, 'REGULAR')
+        min_val, max_val = self.SEGMENTS[segment]['value_range']
+        
+        # Power law distribution (Pareto)
+        # alpha=3 gives a nice long tail
+        val = (random.paretovariate(3) - 1) * (max_val - min_val) + min_val
+        
+        # Add noise and bounds
+        val = val * random.uniform(0.8, 1.2)
+        val = max(5.0, min(val, 5000.0))
+            
+        return round(val, 2)
+
+    def get_status(self, order_date):
+        """Determine status based on how old the order is."""
+        days_old = (datetime.now().date() - order_date.date()).days
+        
+        if days_old > 7:
+            return random.choices(['delivered', 'returned', 'cancelled'], weights=[0.90, 0.08, 0.02])[0]
+        elif days_old > 3:
+            return random.choices(['shipped', 'delivered'], weights=[0.3, 0.7])[0]
+        elif days_old > 1:
+            return random.choices(['processing', 'shipped'], weights=[0.4, 0.6])[0]
+        else:
+            return random.choices(['pending', 'processing'], weights=[0.3, 0.7])[0]
+
+    def get_payment_method(self, country):
+        """Get payment method based on country preferences."""
+        prefs = self.PAYMENT_PREFS.get(country, self.PAYMENT_PREFS['default'])
+        methods = list(prefs.keys())
+        weights = list(prefs.values())
+        return random.choices(methods, weights=weights)[0]
+
+
 def insert_orders(conn, customer_ids, count=500, use_api=True, batch_size=100, commit_every=100, force_fallback=False):
-    """Insert fake order data with international shipping addresses."""
+    """Insert fake order data with realistic patterns."""
+    if not customer_ids:
+        print("⚠️  No customer IDs provided. Skipping order insertion.")
+        return
+
     cursor = conn.cursor()
     
-    print(f"Inserting {count} orders with international shipping addresses...")
-    print(f"  Data will be spread across the last 24 months for better historical analytics")
-    print(f"  Using batch size: {batch_size}")
-    print(f"  Committing every: {commit_every} orders")
+    print(f"Inserting {count} orders with realistic patterns (seasonality, segments, etc.)...")
     
-    # Payment methods
-    payment_methods = ['credit_card', 'debit_card', 'paypal', 'bank_transfer', 'cash']
-    statuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled']
+    # Initialize generator with business logic
+    generator = RealisticOrderGenerator(customer_ids)
     
-    # International shipping destinations with weights (more likely to ship to certain countries)
+    # Shipping destinations with weights
     shipping_destinations = [
-        ('Canada', '0.35'),     # 35% - Canadian customers
-        ('United States', '0.25'),  # 25% - US shipping
-        ('United Kingdom', '0.1'),  # 10% - UK shipping
-        ('Germany', '0.08'),    # 8% - German shipping
-        ('France', '0.06'),     # 6% - French shipping
-        ('Italy', '0.04'),      # 4% - Italian shipping
-        ('Spain', '0.03'),      # 3% - Spanish shipping
-        ('Japan', '0.03'),      # 3% - Japanese shipping
-        ('Australia', '0.03'),  # 3% - Australian shipping
-        ('South Korea', '0.01'), # 1% - Korean shipping
-        ('Netherlands', '0.01'), # 1% - Dutch shipping
-        ('Switzerland', '0.01')  # 1% - Swiss shipping
+        ('Canada', 0.35), ('United States', 0.25), ('United Kingdom', 0.1),
+        ('Germany', 0.08), ('France', 0.06), ('Italy', 0.04),
+        ('Spain', 0.03), ('Japan', 0.03), ('Australia', 0.03),
+        ('South Korea', 0.01), ('Netherlands', 0.01), ('Switzerland', 0.01)
     ]
+    dest_names = [d[0] for d in shipping_destinations]
+    dest_weights = [d[1] for d in shipping_destinations]
     
-    # Pre-generate some addresses to speed up the process
-    if use_api:
+    # Pre-generate addresses for common destinations to warm cache
+    if use_api and not force_fallback:
         print("  Pre-generating addresses for common destinations...")
-        common_destinations = ['Canada', 'United States', 'United Kingdom', 'Germany', 'France', 'Italy', 'Spain', 'Japan', 'Australia']
-        for dest in common_destinations:
+        for dest in dest_names[:5]:
             address_generator.get_realistic_address(dest)
-        print("  ✓ Address cache populated")
     
     orders_batch = []
-    used_order_ids = set()  # Track used order IDs to ensure uniqueness
+    used_order_ids = set()
     
     for i in range(count):
-        # Random date within the last 24 months for better historical analytics data
-        days_ago = random.randint(0, 730)  # Random days within last 24 months (730 days)
-        order_date = datetime.now() - timedelta(days=days_ago)
+        # 1. Select Customer (weighted by segment)
+        customer_id = generator.get_customer_for_order()
         
-        # Random total between $10 and $1000
-        total = round(random.uniform(10.0, 1000.0), 2)
+        # 2. Date (weighted by seasonality)
+        order_date = generator.get_order_date()
         
-        # Select shipping destination based on weights
-        destination = random.choices(
-            [dest[0] for dest in shipping_destinations],
-            weights=[float(dest[1]) for dest in shipping_destinations]
-        )[0]
+        # 3. Total (weighted by segment & power law)
+        total = generator.get_order_total(customer_id)
         
-        # Generate realistic international shipping address
+        # 4. Shipping Address & Country
+        destination = random.choices(dest_names, weights=dest_weights)[0]
+        
         if not use_api or force_fallback:
             shipping_address = generate_realistic_address(destination)
         else:
-            if i % 50 == 0:  # Show progress every 50 orders
+            if i % 50 == 0:
                 print(f"    Generating addresses... {i + 1}/{count} orders...", end="\r")
             shipping_address = address_generator.get_realistic_address(destination)
+            if not shipping_address:
+                shipping_address = generate_realistic_address(destination)
         
-        # Generate a unique random order ID (8-9 digits, fits in INTEGER range)
-        max_attempts = 1000  # Prevent infinite loops
-        attempts = 0
-        order_id = None
+        # 5. Payment Method (weighted by region)
+        payment_method = generator.get_payment_method(destination)
         
-        while attempts < max_attempts:
-            candidate_id = random.randint(10000000, 999999999)  # 8-9 digits, fits in INTEGER
-            if candidate_id not in used_order_ids:
-                order_id = candidate_id
+        # 6. Status (weighted by age)
+        status = generator.get_status(order_date)
+        
+        # 7. Unique ID
+        while True:
+            order_id = random.randint(10000000, 999999999)
+            if order_id not in used_order_ids:
                 used_order_ids.add(order_id)
                 break
-            attempts += 1
-        
-        if order_id is None:
-            # Fallback: use timestamp-based ID if we can't find a unique random one
-            order_id = int(datetime.now().timestamp() * 1000) % 1000000000  # 9 digits max
-            used_order_ids.add(order_id)
         
         order = (
-            order_id,  # Random order ID
-            random.choice(customer_ids),
+            order_id,
+            customer_id,
             order_date.date(),
             total,
-            random.choice(statuses),
+            status,
             shipping_address,
-            random.choice(payment_methods),
-            order_date  # created_at
+            payment_method,
+            order_date  # created_at matches order_date
         )
         
         orders_batch.append(order)
         
-        # Insert batch when it reaches the batch size or at the end
+        # Batch insert
         if len(orders_batch) >= batch_size or i == count - 1:
-            # Use executemany for batch insert
             cursor.executemany("""
                 INSERT INTO orders (id, customer_id, order_date, total, status, 
                                   shipping_address, payment_method, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, orders_batch)
             
-            # Commit based on commit frequency
             if (i + 1) % commit_every == 0 or i == count - 1:
                 conn.commit()
                 print(f"    ✓ Committed batch at {i + 1}/{count} orders")
             
-            # Clear the batch
             orders_batch = []
             
-            # Progress updates
             if (i + 1) % 100 == 0:
                 print(f"  Progress: {i + 1}/{count} orders inserted and committed")
-            elif (i + 1) % 10 == 0:
-                print(f"    {i + 1}/{count} orders inserted...", end="\r")
-    
-    print(f"✓ Inserted {count} orders with international shipping")
+
+    print(f"✓ Inserted {count} orders with realistic business patterns")
 
 
 def query_recent_activity(conn, customer_id):
